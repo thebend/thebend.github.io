@@ -77,6 +77,7 @@ var Domain = (function () {
     };
     return Domain;
 }());
+var MIN_ZOOM_SIZE = 5;
 var MapUI = (function () {
     function MapUI(mapElement, histogramElement, tooltipElement, searchElement) {
         var _this = this;
@@ -87,7 +88,14 @@ var MapUI = (function () {
         this.colorInterpolator = d3.interpolateRgbBasis([color.gray, color.green]);
         this.colorScale = d3.scaleLinear();
         this.zoom = function () {
-            _this.resize(new Domain([_this.xScale.invert(_this.mouseDownEvent.clientX), _this.xScale.invert(d3.event.clientX)], [_this.yScale.invert(_this.mouseDownEvent.clientY), _this.yScale.invert(d3.event.clientY)]));
+            _this.zoomRect.remove();
+            var x1 = d3.event.clientX;
+            var y1 = d3.event.clientY;
+            var distance = Math.sqrt(Math.pow((x1 - _this.x0), 2) + Math.pow((y1 - _this.y0), 2));
+            if (distance >= MIN_ZOOM_SIZE) {
+                _this.resize(new Domain([_this.xScale.invert(x1), _this.xScale.invert(_this.x0)], [_this.yScale.invert(y1), _this.yScale.invert(_this.y0)]));
+            }
+            _this.x0 = undefined;
         };
         this.scaledPointString = function (point) {
             return _this.xScale(point[0]) + ',' + _this.yScale(point[1]);
@@ -136,7 +144,21 @@ var MapUI = (function () {
                 removeClass(isMatch ? 'glyphicon-remove' : 'glyphicon-ok');
         };
         this.mapD3 = d3.select(mapElement).
-            on('mousedown', function () { return _this.mouseDownEvent = d3.event; }).
+            on('mousedown', function () {
+            _this.x0 = d3.event.clientX;
+            _this.y0 = d3.event.clientY;
+            _this.zoomRect = _this.mapD3.append('rect').
+                attr('id', 'zoom-rect');
+        }).
+            on('mousemove', function () {
+            if (!_this.x0)
+                return;
+            var x = d3.extent([_this.x0, d3.event.clientX]);
+            var y = d3.extent([_this.y0, d3.event.clientY]);
+            _this.zoomRect.
+                attr('x', x[0]).attr('width', x[1] - x[0]).
+                attr('y', y[0]).attr('height', y[1] - y[0]);
+        }).
             on('mouseup', this.zoom);
         this.histogramD3 = d3.select(histogramElement);
         this.tooltip = $(tooltipElement);
@@ -152,7 +174,7 @@ var MapUI = (function () {
         var _this = this;
         this.propertyData = data;
         this.activeData = data;
-        this.mapD3.selectAll('polygon').
+        this.mapD3.append('g').attr('id', 'properties').selectAll('polygon').
             data(data, function (d) { return d.oid_evbc_b64; }).enter().append('polygon').
             on('mouseover', function (d) { return _this.tooltip.html(tooltipTemplate(d)); });
         this.resize();
