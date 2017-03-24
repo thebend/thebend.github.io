@@ -1,3 +1,4 @@
+//// <reference path="types.ts" />
 // polyfills
 Array.prototype.find || Object.defineProperty(Array.prototype, "find", { value: function (a) { if (null == this)
         throw new TypeError('"this" is null or not defined'); var b = Object(this), c = b.length >>> 0; if ("function" != typeof a)
@@ -14,45 +15,16 @@ Array.prototype.includes || Object.defineProperty(Array.prototype, "includes", {
             return !0;
         f++;
     } return !1; } });
-var zones = [
-    {
-        "type": "residential",
-        "codes": ['R1', 'R1-A', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'RS1'],
-        "color": "green"
-    }, {
-        "type": "agricultural",
-        "codes": ['AR1', 'AR2'],
-        "color": "darkred",
-    }, {
-        "type": "commercial",
-        "codes": ['C1', 'C1-A', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'ASC', 'GSC'],
-        "color": "royalblue"
-    }, {
-        "type": "industrial",
-        "codes": ['M1', 'M2', 'M3'],
-        "color": "orange"
-    }, {
-        "type": "public",
-        "codes": ['AO', 'P1', 'P2', 'P3'],
-        "color": "slategrey"
-    }
-];
-var color = {
-    gray: 'rgb(191,191,191)',
-    lightgray: 'rgb(211,211,211)',
-    green: 'rgb(0,191,0)',
-    red: 'rgb(191,0,0)'
-};
-color.goodBad = [color.green, color.gray];
-color.badGood = [color.gray, color.green];
-color.posNeg = [color.red, color.gray, color.green];
 function getZoneColor(d) {
     return d.zone ? d.zone.color : color.gray;
+}
+function doZoneColor() {
+    scaleControls.addClass('disabled').removeClass('active');
+    mapUi.mapD3.selectAll('polygon').style('fill', getZoneColor);
 }
 var currencyFormat = d3.format('$,');
 Handlebars.registerHelper('currencyFormat', currencyFormat);
 Handlebars.registerHelper('yesNo', function (d) { return d ? 'Yes' : 'No'; });
-var tooltipTemplate;
 var scaleControls;
 var Domain = (function () {
     function Domain(x, y) {
@@ -79,23 +51,21 @@ var Domain = (function () {
 }());
 var MIN_ZOOM_SIZE = 5;
 var MapUI = (function () {
-    function MapUI(mapElement, histogramElement, tooltipElement, searchElement) {
+    function MapUI(mapElement, histogramElement, tooltipElement, tooltipTemplate) {
         var _this = this;
         this.xScale = d3.scaleLinear();
         this.yScale = d3.scaleLinear();
         this.focusedDataScale = d3.scaleLinear();
-        this.isUpdatingUI = false;
         this.colorInterpolator = d3.interpolateRgbBasis([color.gray, color.green]);
         this.colorScale = d3.scaleLinear();
         this.zoom = function () {
             _this.zoomRect.remove();
-            var x1 = d3.event.clientX;
-            var y1 = d3.event.clientY;
-            var distance = Math.sqrt(Math.pow((x1 - _this.x0), 2) + Math.pow((y1 - _this.y0), 2));
+            var pos1 = d3.mouse(_this.mapSvg);
+            var distance = Math.sqrt(Math.pow((pos1[0] - _this.pos0[0]), 2) + Math.pow((pos1[1] - _this.pos0[1]), 2));
             if (distance >= MIN_ZOOM_SIZE) {
-                _this.resize(new Domain([_this.xScale.invert(x1), _this.xScale.invert(_this.x0)], [_this.yScale.invert(y1), _this.yScale.invert(_this.y0)]));
+                _this.resize(new Domain([_this.xScale.invert(_this.pos0[0]), _this.xScale.invert(pos1[0])], [_this.yScale.invert(_this.pos0[1]), _this.yScale.invert(pos1[1])]));
             }
-            _this.x0 = undefined;
+            _this.pos0 = undefined;
         };
         this.scaledPointString = function (point) {
             return _this.xScale(point[0]) + ',' + _this.yScale(point[1]);
@@ -110,7 +80,7 @@ var MapUI = (function () {
          */
         this.resize = function (domain) {
             domain = domain || MapUI.getDomain(_this.activeData);
-            var range = _this.mapD3.node().getBoundingClientRect();
+            var range = _this.mapSvg.getBoundingClientRect();
             domain.scaleToRatio(range.height / range.width);
             _this.xScale.domain(domain.x).range([0, range.width]);
             _this.yScale.domain(domain.y).range([range.height, 0]);
@@ -118,53 +88,62 @@ var MapUI = (function () {
         };
         this.getColor = function (d) {
             var val = _this.focusedDataAccessor(d);
-            return val ? _this.colorScale(_this.focusedDataScale(val)) : '#444';
+            return val == null ? '#444' : _this.colorScale(_this.focusedDataScale(val));
         };
-        this.doZoneColor = function () {
-            // why do I need to manually set the CSS classes on bootstrap buttons?
-            // don't want to be touching buttons in this object
-            scaleControls.addClass('disabled').removeClass('active');
-            _this.mapD3.selectAll('polygon').style('fill', getZoneColor);
+        /**
+         * Replace scale with a new one using the same domain and range.
+         * Used to change from linear to log scale type.
+         */
+        this.setLogScale = function (isLog) {
+            var scale = isLog ? d3.scaleLog() : d3.scaleLinear();
+            _this.focusedDataScale = scale.
+                domain(_this.focusedDataScale.domain()).
+                range(_this.focusedDataScale.range());
         };
-        this.filterAddress = function () {
-            _this.mapD3.selectAll('polygon').style('stroke', null);
-            var searchVal = _this.searchInput.val().toUpperCase();
-            if (!searchVal)
-                return;
-            function hasMatchingAddress(d) {
-                return d.address.indexOf(searchVal) > -1;
-            }
-            var isMatch = _this.mapD3.selectAll('polygon').
-                filter(hasMatchingAddress).style('stroke', 'white').size() > 0;
-            _this.search.
-                addClass(isMatch ? 'has-success' : 'has-error').
-                removeClass(isMatch ? 'has-error' : 'has-success');
-            _this.searchIcon.
-                addClass(isMatch ? 'glyphicon-ok' : 'glyphicon-remove').
-                removeClass(isMatch ? 'glyphicon-remove' : 'glyphicon-ok');
+        this.setViridisColor = function (isViridis) {
+            _this.colorScale.interpolate(function () { return isViridis ? d3.interpolateViridis : _this.colorInterpolator; });
         };
+        this.recolor = function (parameters) {
+            if ('accessor' in parameters)
+                _this.updateFocusedData(parameters.accessor);
+            if ('scale' in parameters)
+                _this.setLogScale(parameters.scale == 'log');
+            if ('colorRange' in parameters)
+                _this.colorInterpolator = d3.interpolateRgbBasis(parameters.colorRange);
+            if ('viridis' in parameters)
+                _this.setViridisColor(parameters.viridis);
+            _this.redraw();
+        };
+        this.highlight = function (filter) {
+            return _this.mapD3.selectAll('polygon').
+                style('stroke', null).
+                filter(filter).
+                style('stroke', 'white').
+                size();
+        };
+        this.mapSvg = mapElement;
         this.mapD3 = d3.select(mapElement).
             on('mousedown', function () {
-            _this.x0 = d3.event.clientX;
-            _this.y0 = d3.event.clientY;
+            _this.pos0 = d3.mouse(_this.mapSvg);
             _this.zoomRect = _this.mapD3.append('rect').
                 attr('id', 'zoom-rect');
         }).
             on('mousemove', function () {
-            if (!_this.x0)
+            if (!_this.pos0)
                 return;
-            var x = d3.extent([_this.x0, d3.event.clientX]);
-            var y = d3.extent([_this.y0, d3.event.clientY]);
+            var pos1 = d3.mouse(_this.mapSvg);
+            var x = d3.extent([_this.pos0[0], pos1[0]]);
+            var y = d3.extent([_this.pos0[1], pos1[1]]);
             _this.zoomRect.
                 attr('x', x[0]).attr('width', x[1] - x[0]).
                 attr('y', y[0]).attr('height', y[1] - y[0]);
         }).
             on('mouseup', this.zoom);
+        this.mapD3.append('g').attr('id', 'properties');
         this.histogramD3 = d3.select(histogramElement);
         this.tooltip = $(tooltipElement);
-        this.search = $(searchElement).on('input', updateAddressFilter);
-        this.searchInput = this.search.find('input');
-        this.searchIcon = this.search.find('.glyphicon');
+        this.tooltipTemplate = tooltipTemplate;
+        this.setViridisColor(false);
     }
     MapUI.getDomain = function (data) {
         var points = d3.merge(data.map(function (p) { return p.points; }));
@@ -172,11 +151,11 @@ var MapUI = (function () {
     };
     MapUI.prototype.setData = function (data) {
         var _this = this;
-        this.propertyData = data;
+        this.allData = data;
         this.activeData = data;
-        this.mapD3.append('g').attr('id', 'properties').selectAll('polygon').
-            data(data, function (d) { return d.oid_evbc_b64; }).enter().append('polygon').
-            on('mouseover', function (d) { return _this.tooltip.html(tooltipTemplate(d)); });
+        this.mapD3.select('#properties').selectAll('polygon').
+            data(data, function (d) { return d.id; }).enter().append('polygon').
+            on('mouseover', function (d) { return _this.tooltip.html(_this.tooltipTemplate(d)); });
         this.resize();
     };
     MapUI.prototype.drawHistogram = function () {
@@ -198,19 +177,17 @@ var MapUI = (function () {
             text(function (d) { return MapUI.legendPrecision(d.x0) + '-' + MapUI.legendPrecision(d.x1); });
     };
     MapUI.prototype.redraw = function () {
-        this.isUpdatingUI = false;
         this.mapD3.selectAll('polygon').style('fill', this.getColor);
         this.drawHistogram();
     };
-    MapUI.prototype.toggleFilter = function (zone, isActive) {
-        function isFilterZone(d) { return d.zone && d.zone.type == zone; }
-        if (isActive) {
-            this.activeData = this.activeData.concat(this.propertyData.filter(isFilterZone));
+    MapUI.prototype.toggleFilter = function (filter, enable) {
+        if (enable) {
+            this.activeData = this.activeData.concat(this.allData.filter(filter));
         }
         else {
-            this.activeData = this.activeData.filter(function (d) { return !isFilterZone(d); });
+            this.activeData = this.activeData.filter(function (d) { return !filter(d); });
         }
-        this.mapD3.selectAll('polygon').filter(isFilterZone).style('display', isActive ? 'none' : null);
+        this.mapD3.selectAll('polygon').filter(filter).style('display', enable ? 'none' : null);
         this.updateFocusedData();
         this.redraw();
     };
@@ -222,32 +199,6 @@ var MapUI = (function () {
         var domain = d3.extent(this.focusedData);
         var multiRange = this.focusedDataScale.range().length == 3;
         this.focusedDataScale.domain(multiRange ? [domain[0], 1, domain[1]] : domain);
-    };
-    /**
-     * Replace scale with a new one using the same domain and range.
-     * Used to change from linear to log scale type.
-     */
-    MapUI.prototype.setFocusedDataScale = function (scale) {
-        this.focusedDataScale = scale.
-            domain(this.focusedDataScale.domain()).
-            range(this.focusedDataScale.range());
-        if (!this.isUpdatingUI)
-            this.redraw();
-    };
-    MapUI.prototype.setColorParameters = function (accessor, scaleRange, scaleType) {
-        this.isUpdatingUI = true;
-        scaleControls.removeClass('disabled');
-        this.updateFocusedData(accessor);
-        this.colorInterpolator = d3.interpolateRgbBasis(scaleRange);
-        $('#simple').click();
-        $('#' + scaleType).click();
-        this.redraw();
-    };
-    MapUI.prototype.setViridisColor = function (isViridis) {
-        var _this = this;
-        this.colorScale.interpolate(function () { return isViridis ? d3.interpolateViridis : _this.colorInterpolator; });
-        if (!this.isUpdatingUI)
-            this.redraw();
     };
     return MapUI;
 }());
@@ -281,68 +232,110 @@ function getChangeRatio(current, previous) {
 var filterAddressTimeout;
 function updateAddressFilter() {
     clearTimeout(filterAddressTimeout);
-    filterAddressTimeout = setTimeout(mapUi.filterAddress, 500);
+    filterAddressTimeout = setTimeout(filterAddress, 500);
+}
+function filterAddress() {
+    var searchVal = searchInput.val().toUpperCase();
+    if (!searchVal)
+        return;
+    var hasMatches = mapUi.highlight(function (d) { return d.address.indexOf(searchVal) > -1; }) > 0;
+    search.
+        addClass(hasMatches ? 'has-success' : 'has-error').
+        removeClass(hasMatches ? 'has-error' : 'has-success');
+    searchIcon.
+        addClass(hasMatches ? 'glyphicon-ok' : 'glyphicon-remove').
+        removeClass(hasMatches ? 'glyphicon-remove' : 'glyphicon-ok');
+}
+// domain estimated at 980736 units wide, translates to roughly 5300 meters wide
+var METERS_PER_UNIT = 5300 / 980736;
+var METERS_PER_UNIT_AREA = Math.pow(METERS_PER_UNIT, 2);
+function cleanLandPropertyRow(r) {
+    var d = {
+        id: r.oid_evbc_b64,
+        oid_evbc_b64: r.oid_evbc_b64,
+        pid: r.pid,
+        total_assessed_land: +r.total_assessed_land,
+        total_assessed_building: +r.total_assessed_building,
+        total_assessed_value: +r.total_assessed_value,
+        previous_land: +r.previous_land,
+        previous_building: +r.previous_building,
+        previous_total: +r.previous_total,
+        year_built: +r.year_built,
+        address: r.address,
+        geometry: r.geometry,
+        points: eval(r.geometry),
+        sales_history: eval(r.sales_history),
+        zoning: r.zoning,
+        bedrooms: +r.bedrooms || null,
+        bathrooms: +r.bathrooms || null,
+        carport: !!+r.carport,
+        garage: !!+r.garage,
+        storeys: +r.storeys
+    };
+    d.area = d.points ? Math.round(Math.abs(d3.polygonArea(d.points)) * METERS_PER_UNIT_AREA) : null;
+    d.land_glyph = getGlyph(d.previous_land, d.total_assessed_land);
+    d.building_glyph = getGlyph(d.previous_building, d.total_assessed_building);
+    d.total_glyph = getGlyph(d.previous_total, d.total_assessed_value);
+    d.zone = zones.find(function (z) { return z.codes.includes(d.zoning); });
+    return d;
 }
 var mapUi;
+var search;
+var searchInput;
+var searchIcon;
+function setColorParameters(params) {
+    scaleControls.removeClass('disabled');
+    if ('viridis' in params) {
+        var scale = params.viridis ? 'viridis' : 'simple';
+        var otherScale = params.viridis ? 'simple' : 'viridis';
+        $('#' + scale).addClass('active');
+        $('#' + otherScale).removeClass('active');
+    }
+    if ('scale' in params) {
+        var otherScale = params.scale == 'linear' ? 'log' : 'linear';
+        $('#' + params.scale).addClass('active');
+        $('#' + otherScale).removeClass('active');
+    }
+    mapUi.recolor(params);
+}
 $(function () {
-    tooltipTemplate = Handlebars.compile($('#tooltip-template').html());
     scaleControls = $('#scale label, #color label');
-    mapUi = new MapUI($('#map svg')[0], $('#histogram svg')[0], document.getElementById('tooltip'), document.getElementById('search'));
+    search = $('#search').on('input', updateAddressFilter);
+    searchInput = search.find('input');
+    searchIcon = search.find('.glyphicon');
+    mapUi = new MapUI($('#map svg')[0], $('#histogram svg')[0], document.getElementById('tooltip'), Handlebars.compile($('#tooltip-template').html()));
     // configure UI events
     ['residential', 'commercial', 'industrial', 'agricultural', 'public'].forEach(function (zone) {
         var btn = $('#' + zone);
-        btn.on('click', function () { return mapUi.toggleFilter(zone, btn.hasClass('active')); });
+        btn.on('click', function () { return mapUi.toggleFilter(function (d) { return d.zone && d.zone.type == zone; }, btn.hasClass('active')); });
     });
     var clickActions = {
         "zoomout": function () { return mapUi.resize(); },
-        "linear": function () { return mapUi.setFocusedDataScale(d3.scaleLinear()); },
-        "log": function () { return mapUi.setFocusedDataScale(d3.scaleLog()); },
-        "simple": function () { return mapUi.setViridisColor(false); },
-        "viridis": function () { return mapUi.setViridisColor(true); },
-        "land-value": function () { return mapUi.setColorParameters(getLandValueDensity, color.badGood, 'linear'); },
-        "age": function () { return mapUi.setColorParameters(getAge, color.goodBad, 'log'); },
-        "total-value": function () { return mapUi.setColorParameters(function (d) { return d.total_assessed_value; }, color.badGood, 'log'); },
-        "change-building": function () { return mapUi.setColorParameters(function (d) { return getChangeRatio(d.total_assessed_building, d.previous_building); }, color.posNeg, 'log'); },
-        "change-land": function () { return mapUi.setColorParameters(function (d) { return getChangeRatio(d.total_assessed_land, d.previous_land); }, color.posNeg, 'linear'); },
-        "zone-type": mapUi.doZoneColor,
-        "bedroom": function () { return mapUi.setColorParameters(function (d) { return d.bedrooms; }, color.goodBad, 'log'); },
-        "bathroom": function () { return mapUi.setColorParameters(function (d) { return d.bathrooms; }, color.goodBad, 'log'); }
+        "linear": function () { return setColorParameters({ scale: 'linear' }); },
+        "log": function () { return setColorParameters({ scale: 'log' }); },
+        "simple": function () { return setColorParameters({ viridis: false }); },
+        "viridis": function () { return setColorParameters({ viridis: true }); },
+        "land-value": function () { return setColorParameters({ accessor: getLandValueDensity, colorRange: color.badGood, scale: 'linear' }); },
+        "age": function () { return setColorParameters({ accessor: getAge, colorRange: color.goodBad, scale: 'log' }); },
+        "total-value": function () { return setColorParameters({ accessor: function (d) { return d.total_assessed_value; }, colorRange: color.goodBad, scale: 'log' }); },
+        "change-building": function () { return setColorParameters({
+            accessor: function (d) { return getChangeRatio(d.total_assessed_building, d.previous_building); },
+            colorRange: color.posNeg,
+            scale: 'log'
+        }); },
+        "change-land": function () { return setColorParameters({
+            accessor: function (d) { return getChangeRatio(d.total_assessed_land, d.previous_land); },
+            colorRange: color.posNeg,
+            scale: 'linear'
+        }); },
+        "zone-type": function () { return doZoneColor(); },
+        "bedroom": function () { return setColorParameters({ accessor: function (d) { return d.bedrooms; }, colorRange: color.goodBad, scale: 'log' }); },
+        "bathroom": function () { return setColorParameters({ accessor: function (d) { return d.bathrooms; }, colorRange: color.goodBad, scale: 'log' }); }
     };
     for (var key in clickActions) {
         $('#' + key).on('click', clickActions[key]);
     }
-    // domain estimated at 980736 units wide, translates to roughly 5300 meters wide
-    var METERS_PER_UNIT = 5300 / 980736;
-    var METERS_PER_UNIT_AREA = Math.pow(METERS_PER_UNIT, 2);
-    d3.csv('terrace.csv').row(function (r) {
-        var d = {
-            oid_evbc_b64: r.oid_evbc_b64,
-            pid: r.pid,
-            total_assessed_land: +r.total_assessed_land,
-            total_assessed_building: +r.total_assessed_building,
-            total_assessed_value: +r.total_assessed_value,
-            previous_land: +r.previous_land,
-            previous_building: +r.previous_building,
-            previous_total: +r.previous_total,
-            year_built: +r.year_built,
-            address: r.address,
-            geometry: r.geometry,
-            points: eval(r.geometry),
-            sales_history: eval(r.sales_history),
-            zoning: r.zoning,
-            bedrooms: +r.bedrooms || null,
-            bathrooms: +r.bathrooms || null,
-            carport: !!+r.carport,
-            garage: !!+r.garage,
-            storeys: +r.storeys
-        };
-        d.area = d.points ? Math.round(Math.abs(d3.polygonArea(d.points)) * METERS_PER_UNIT_AREA) : null;
-        d.land_glyph = getGlyph(d.previous_land, d.total_assessed_land);
-        d.building_glyph = getGlyph(d.previous_building, d.total_assessed_building);
-        d.total_glyph = getGlyph(d.previous_total, d.total_assessed_value);
-        d.zone = zones.find(function (z) { return z.codes.includes(d.zoning); });
-        return d;
-    }).get(function (error, data) {
+    d3.csv('terrace.csv').row(cleanLandPropertyRow).get(function (error, data) {
         mapUi.setData(data);
         $('#land-value').click();
     });
