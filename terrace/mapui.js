@@ -82,7 +82,7 @@ $(function () {
     search = $('#search').on('input', updateAddressFilter);
     searchInput = search.find('input');
     searchIcon = search.find('.glyphicon');
-    mapUi = new MapAnalyzer($('#map svg')[0], $('#histogram svg')[0], 'horizontal', document.getElementById('tooltip'), Handlebars.compile($('#tooltip-template').html()));
+    mapUi = new MapAnalyzer($('#map svg')[0], $('#histogram svg')[0], 'vertical', document.getElementById('tooltip'), Handlebars.compile($('#tooltip-template').html()));
     // configure UI events
     ['residential', 'commercial', 'industrial', 'agricultural', 'public'].forEach(function (zone) {
         var btn = $('#' + zone);
