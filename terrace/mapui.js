@@ -82,14 +82,13 @@ $(function () {
     search = $('#search').on('input', updateAddressFilter);
     searchInput = search.find('input');
     searchIcon = search.find('.glyphicon');
-    mapUi = new MapAnalyzer($('#map svg')[0], $('#histogram svg')[0], 'vertical', document.getElementById('tooltip'), Handlebars.compile($('#tooltip-template').html()));
+    mapUi = new MapAnalyzer($('#map svg')[0], $('#histogram svg')[0], 'vertical', document.getElementById('tooltip-content'), Handlebars.compile($('#tooltip-template').html()));
     // configure UI events
     ['residential', 'commercial', 'industrial', 'agricultural', 'public'].forEach(function (zone) {
         var btn = $('#' + zone);
         btn.on('click', function () { return mapUi.toggleFilter(function (d) { return d.zone && d.zone.type == zone; }, btn.hasClass('active')); });
     });
     var clickActions = {
-        "zoomout": function () { return mapUi.resize(); },
         "linear": function () { return setColorParameters({ scale: 'linear' }); },
         "log": function () { return setColorParameters({ scale: 'log' }); },
         "simple": function () { return setColorParameters({ viridis: false }); },
